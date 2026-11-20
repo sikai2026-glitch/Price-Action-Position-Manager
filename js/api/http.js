@@ -1,0 +1,3 @@
+export async function getJson(url,timeout=10000){const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),timeout);try{const r=await fetch(url,{signal:controller.signal,cache:'no-store'});if(!r.ok)throw new Error(`HTTP ${r.status} ${r.statusText}`);return await r.json()}finally{clearTimeout(timer)}}
+export async function getFirst(urls){let last;for(const url of urls){try{return await getJson(url)}catch(e){last=e}}throw last||new Error('所有行情源均不可用')}
+export function query(base,path,params={}){const u=new URL(path,base);Object.entries(params).forEach(([k,v])=>{if(v!==undefined&&v!==null)u.searchParams.set(k,String(v))});return u.toString()}
