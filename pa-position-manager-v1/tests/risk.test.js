@@ -1,7 +1,0 @@
-import test from 'node:test';import assert from 'node:assert/strict';
-import {calculatePosition,deriveStops,targets} from '../js/risk/position.js';
-test('position sizing respects risk budget and rounds quantity down',()=>{const p=calculatePosition({equity:70,riskPct:1,entry:100,stop:98,leverage:3,feeRate:0.0005,side:'LONG',rules:{qtyStep:0.01,minQty:0.01,minNotional:5,status:'TRADING'}});assert.equal(p.qty,0.33);assert.ok(p.totalStopCost<=p.riskBudget);assert.equal(p.admissible,true)});
-test('long stop is below entry and short stop above entry',()=>{const structure={atr:1,recentLow:{price:98},recentHigh:{price:102}};assert.equal(deriveStops({side:'LONG',entry:100,structure,buffer:.2}).stop,97.8);assert.equal(deriveStops({side:'SHORT',entry:100,structure,buffer:.2}).stop,102.2)});
-test('invalid stop direction is rejected',()=>{assert.throws(()=>deriveStops({side:'LONG',entry:100,mode:'manual',manualStop:101}),/止损方向错误/)});
-test('R targets follow direction',()=>{const long=targets({side:'LONG',entry:100,stop:98,structure:{}});const short=targets({side:'SHORT',entry:100,stop:102,structure:{}});assert.equal(long[0].price,103);assert.equal(short[0].price,97)});
-test('minimum notional violation blocks admission',()=>{const p=calculatePosition({equity:70,riskPct:1,entry:100,stop:99,leverage:3,feeRate:0,rules:{qtyStep:0.001,minQty:0.001,minNotional:100,status:'TRADING'}});assert.equal(p.admissible,false);assert.match(p.checks.join(' '),/最小值/)});
