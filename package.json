@@ -1,1 +1,1 @@
-{"name":"pa-position-manager","version":"1.0.2","private":true,"type":"module","scripts":{"test":"node --test tests/*.test.js"}}
+{"name":"pa-position-manager","version":"1.0.3","private":true,"type":"module","scripts":{"test":"node --test tests/*.test.js"}}

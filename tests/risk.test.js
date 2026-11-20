@@ -26,10 +26,10 @@ test('invalid stop direction is rejected for manual stop',()=>{
 });
 
 test('R targets follow direction and structural obstacle is exposed separately',()=>{
-  const long=targets({side:'LONG',entry:100,stop:98,structure:{pivots:{highs:[{index:4,price:104,time:4}],lows:[]}}});
-  const short=targets({side:'SHORT',entry:100,stop:102,structure:{pivots:{highs:[],lows:[{index:4,price:96,time:4}]}}});
+  const long=targets({side:'LONG',entry:100,stop:98,structure:{pivots:{highs:[{index:4,price:104,time:4,valid:true}],lows:[]}}});
+  const short=targets({side:'SHORT',entry:100,stop:102,structure:{pivots:{highs:[],lows:[{index:4,price:96,time:4,valid:true}]}}});
   assert.equal(long.rrTargets[0].price,103);assert.equal(short.rrTargets[0].price,97);
-  assert.equal(long.structureTargets[0].price,104);assert.equal(long.finalTargets[1].price,105);assert.equal(long.finalTargets[1].blockedByStructure,true);
+  assert.equal(long.structureTargets[0].price,104);assert.equal(long.finalTargets[0].price,103);assert.equal(long.finalTargets[1].price,104);assert.equal(long.finalTargets[1].source,'STRUCTURE');
 });
 
 test('position is rejected when exchange lot size makes minimum order exceed collateral reserve',()=>{
@@ -53,4 +53,20 @@ test('minimum tradable lot exposes risk and margin feasibility instead of silent
   const a=evaluateAdmission({side:'SHORT',structure:{trend:'BEARISH',event:'BEARISH_BOS'},stop:{valid:true},targets:{finalTargets:[{rr:1.5}],warnings:[]},position:p});
   assert.equal(a.status,'REJECTED');
   assert.equal(a.marginSufficient,false);
+});
+
+
+test('U-margined futures sizing always calculates margin in USDT regardless of legacy market argument',()=>{
+  const p=calculatePosition({equity:100,riskPct:1,entry:100,stop:95,leverage:5,feeRate:0,side:'LONG',rules:{qtyStep:0.001,minQty:0.001,minNotional:5,status:'TRADING'},market:'usdt_m_perpetual'});
+  assert.equal(p.marginType,'USDT-M');
+  assert.equal(p.marginAsset,'USDT');
+  assert.ok(Math.abs(p.margin-p.notional/5)<1e-9);
+});
+
+
+test('structural target clips the R target when a confirmed pivot lies before it',()=>{
+  const t=targets({side:'LONG',entry:100,stop:98,structure:{pivots:{highs:[{index:7,price:102.5,time:7,valid:true}],lows:[]}}});
+  assert.equal(t.finalTargets[0].price,102.5);
+  assert.equal(t.finalTargets[0].source,'STRUCTURE');
+  assert.ok(t.finalTargets[0].rr<1.5);
 });

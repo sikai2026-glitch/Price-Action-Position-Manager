@@ -6,12 +6,12 @@
   <title>PA Position Manager</title><link rel="manifest" href="./manifest.json"><link rel="stylesheet" href="./css/main.css">
 </head>
 <body>
-<header class="topbar"><div><div class="eyebrow">BINANCE MARKET DATA · PRICE ACTION · RISK ENGINE</div><h1>PA Position Manager <span>V1.0.2</span></h1></div><div class="status"><i id="apiDot"></i><span id="apiStatus">未连接行情</span></div></header>
+<header class="topbar"><div><div class="eyebrow">BINANCE MARKET DATA · PRICE ACTION · RISK ENGINE</div><h1>PA Position Manager <span>V1.0.3</span></h1></div><div class="status"><i id="apiDot"></i><span id="apiStatus">未连接行情</span></div></header>
 <main>
 <section class="panel market-panel">
   <div class="section-head"><div><span class="step">01</span><h2>市场与行情</h2></div><button id="refreshBtn" class="secondary">刷新行情</button></div>
   <div class="form-grid three">
-    <label>市场类型<select id="marketType"><option value="futures">USDⓈ-M 永续</option><option value="spot">现货</option><option value="tradfi">TradFi 永续</option></select></label>
+    <label>合约类型<input id="marketType" value="币安 U 本位永续（USDⓈ-M）" disabled></label>
     <label>交易品种<input id="symbol" list="symbols" value="BTCUSDT" autocomplete="off"><datalist id="symbols"><option value="BTCUSDT"><option value="ETHUSDT"></datalist></label>
     <label>分析周期<select id="timeframe"><option>4h</option><option>1h</option><option>1d</option><option>15m</option></select></label>
   </div>
@@ -23,9 +23,9 @@
   <div class="form-grid three">
     <label>交易方向<select id="side"><option value="LONG">做多 / LONG</option><option value="SHORT">做空 / SHORT</option></select></label>
     <label>计划入场价<input id="entry" type="number" min="0" step="any" placeholder="填写计划入场价格"></label>
-    <label>账户权益 (USDT)<input id="equity" type="number" min="0" step="any" value="70"></label>
+    <label>账户权益 (USDT)<input id="equity" type="number" min="0.01" step="any" placeholder="请手动填写当前账户权益" required></label>
     <label>单笔风险 (%)<input id="riskPct" type="number" min="0.1" max="5" step="0.1" value="1"></label>
-    <label>杠杆 (仅合约)<select id="leverage"><option>2</option><option selected>3</option><option>5</option><option>10</option></select></label>
+    <label>杠杆倍数 (手动填写)<input id="leverage" type="number" min="1" max="125" step="1" value="3" required></label>
     <label>手续费率 (单边，比例)<input id="feeRate" type="number" min="0" step="0.0001" value="0.0005"></label>
     <label>保证金利用率<input id="marginUtilization" type="number" min="0.1" max="1" step="0.05" value="0.8"></label>
     <label>往返滑点预留 (%)<input id="slippagePct" type="number" min="0" step="0.01" value="0.02"></label>
@@ -60,9 +60,9 @@
   <div class="inline-actions"><button id="calculateBtn" class="primary">计算交易计划</button><button id="resetBtn" class="secondary">重置计划</button></div>
   <div class="results-grid">
     <div class="result-card danger"><small>建议止损 SL</small><strong id="stopOut">—</strong><span id="stopReason">等待结构分析</span></div>
-    <div class="result-card"><small>TP1 / 1.5R</small><strong id="tp1Out">—</strong><span id="tp1RR">—</span></div>
-    <div class="result-card"><small>TP2 / 2.5R</small><strong id="tp2Out">—</strong><span id="tp2RR">—</span></div>
-    <div class="result-card"><small>TP3 / 3.5R</small><strong id="tp3Out">—</strong><span id="tp3RR">—</span></div>
+    <div class="result-card"><small>TP1 / 自动目标</small><strong id="tp1Out">—</strong><span id="tp1RR">—</span></div>
+    <div class="result-card"><small>TP2 / 自动目标</small><strong id="tp2Out">—</strong><span id="tp2RR">—</span></div>
+    <div class="result-card"><small>TP3 / 自动目标</small><strong id="tp3Out">—</strong><span id="tp3RR">—</span></div>
   </div>
 </section>
 <section class="panel">
@@ -78,7 +78,7 @@
   <div class="section-head"><div><span class="step">06</span><h2>仓位管理策略</h2></div><span class="tag">分批止盈 · 动态保护 · 结构退出</span></div>
   <div id="managementOut" class="management neutral"><p>计算交易计划后，这里会生成分批止盈、保本移动、结构跟踪和提前退出规则。即使当前不可开仓，也会显示条件式管理方案。</p></div>
 </section>
-<footer><p>PA Position Manager V1.0.2 · 仅提供行情分析与风险计算，不构成投资建议，不执行交易。</p><p>行情可能延迟或不可用。下单前请在币安核对标记价格、交易规则、最小名义价值、数量步长及维持保证金档位。</p></footer>
+<footer><p>PA Position Manager V1.0.3 · 仅提供行情分析与风险计算，不构成投资建议，不执行交易。</p><p>本工具仅支持币安 U 本位（USDT-M）永续合约，不支持币本位（COIN-M）、现货或 TradFi。下单前请在币安核对标记价格、交易规则、最小名义价值、数量步长及维持保证金档位。</p></footer>
 </main>
 <script type="module" src="./js/app.js"></script>
 </body></html>

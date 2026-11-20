@@ -1,11 +1,20 @@
 # Changelog
 
+## V1.0.3
+- Locked the product to Binance USDⓈ-M (USDT-M) perpetual contracts only; removed spot and TradFi market choices and rejected non-USDT / non-standard perpetual symbols.
+- Added explicit USDT margin, quote and settlement metadata to calculations and JSON output; COIN-M inverse contracts are out of scope.
+- Removed the default 70 USDT account equity. Equity must be entered manually before a plan can be calculated.
+- Changed leverage to a manually editable numeric input (1x–125x).
+- Made take-profit selection structure-first: confirmed, still-valid opposing pivots clip the corresponding R-multiple objectives; when no valid structural level exists, the engine explicitly falls back to 1.5R / 2.5R / 3.5R.
+- Added explicit target method, structural target candidates and final TP prices to the calculation detail table and JSON.
+- Fixed staged exit quantities so a position smaller than three minimum exit lots is consolidated into the number of exchange-valid tranches instead of generating impossible zero-quantity TP orders.
+- Bumped service-worker cache and app version.
+
 ## V1.0.2
 - Added conditional trade-management playbook even when entry admission is rejected.
-- Added 40/35/25 staged exits, post-TP1 break-even protection, post-TP2 confirmed-pivot trailing, opposing-structure early-exit review, and pre-entry invalidation rules.
+- Added staged exits, post-TP1 break-even protection, post-TP2 confirmed-pivot trailing, opposing-structure early-exit review, and pre-entry invalidation rules.
 - Added minimum-tradable-lot diagnostics for stop cost, margin, risk feasibility and estimated required equity.
 - Fixed `marginSufficient` so a zero-sized position cannot pass solely because it consumes no margin.
-- Added JSON management and minimum-order feasibility output; bumped service-worker cache.
 
 ## V1.0.1
 - Added pivot invalidation and valid protective structure stops.

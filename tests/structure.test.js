@@ -24,3 +24,4 @@ test('pivots are marked invalid after a later closing break',()=>{
   assert.ok(result.invalidatedLows.some(p=>p.index===20));
   assert.ok(!result.validLongStops.some(p=>p.index===20));
 });
+
