@@ -1,4 +1,4 @@
-# PA Position Manager — Technical Specification V1.0.1
+# PA Position Manager — Technical Specification V1.0.2
 
 ## 1. Product objective
 A static, mobile-first decision-support tool for Binance Spot, USDⓈ-M perpetuals, and USDⓈ-M `TRADIFI_PERPETUAL`. It combines a manually specified planned entry with live public market data, deterministic price-action structure analysis, structure-first stops with ATR buffers, separate R-multiple and structural targets, and risk sizing constrained by both loss budget and available collateral.
@@ -76,3 +76,12 @@ Spot endpoints: `exchangeInfo`, `ticker/price`, `ticker/24hr`, `klines`. USDⓈ-
 - Actual rounded quantity costs are recalculated.
 - R targets and structural targets are separately reported.
 - Admission reasons/warnings and calculation assumptions are included in JSON.
+
+## 11. V1.0.2 minimum-lot feasibility and management plan
+- Compute `minimumTradableQty = ceilToStep(max(minQty, minNotional / entry))` when exchange filters are available.
+- Estimate the minimum lot's gross stop loss, round-trip fees, slippage, funding, initial margin and reserved capital. Compare stop cost with the user's risk budget and reserved capital with the collateral budget independently.
+- Estimate the equity required for the minimum lot as the larger of (minimum-lot total stop cost / risk fraction) and (minimum-lot reserved capital / margin utilization). This is a diagnostic under current assumptions, not a funding recommendation.
+- If calculated quantity is zero, `marginSufficient` is evaluated against the minimum tradable lot rather than the zero-sized position. The admission result remains REJECTED when risk, margin, exchange filters or quantity checks fail.
+- A management playbook is emitted even for REJECTED entries, but is labeled `CONDITIONAL_ONLY` and has no executable partial quantities. It never overrides admission.
+- Default scale-out proportions are TP1 40%, TP2 35%, TP3 25% of the initial position (TP3 receives rounding remainder). After TP1, review moving the remaining stop to break-even plus estimated cost buffer. After TP2, trail behind newly confirmed protective pivots with ATR buffer. Opposing close-confirmed CHoCH/BOS triggers an early-exit review. Broken pre-entry structure invalidates the plan.
+- These management defaults are rule templates, not backtested optimal parameters. The app does not track fills or execute orders; manual recalculation is required after partial exits.

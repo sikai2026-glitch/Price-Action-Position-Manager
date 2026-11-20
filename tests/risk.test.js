@@ -42,3 +42,15 @@ test('admission rejects opposite BOS and invalid stop',()=>{
   const result=evaluateAdmission({side:'LONG',structure:{trend:'BEARISH',event:'BEARISH_BOS'},stop:{valid:false,reason:'没有有效结构止损'},targets:{finalTargets:[]},position:null});
   assert.equal(result.status,'REJECTED');assert.ok(result.reasons.some(x=>/BEARISH_BOS/.test(x)));
 });
+
+test('minimum tradable lot exposes risk and margin feasibility instead of silently reporting zero size',()=>{
+  const p=calculatePosition({equity:20,riskPct:1,entry:62000,stop:64277.5,leverage:3,feeRate:0.0005,side:'SHORT',rules:{qtyStep:0.001,minQty:0.001,minNotional:50,status:'TRADING'},marginUtilization:0.8,slippagePct:0.0002});
+  assert.equal(p.qty,0);
+  assert.equal(p.minimumOrder.qty,0.001);
+  assert.ok(p.minimumOrder.stopCost>p.riskBudget);
+  assert.equal(p.minimumOrder.fitsRisk,false);
+  assert.equal(p.minimumOrder.fitsMargin,false);
+  const a=evaluateAdmission({side:'SHORT',structure:{trend:'BEARISH',event:'BEARISH_BOS'},stop:{valid:true},targets:{finalTargets:[{rr:1.5}],warnings:[]},position:p});
+  assert.equal(a.status,'REJECTED');
+  assert.equal(a.marginSufficient,false);
+});

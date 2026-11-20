@@ -97,6 +97,24 @@ export function calculatePosition({equity,riskPct,entry,stop,leverage=1,feeRate=
   const totalStopCost=grossStopLoss+estimatedFees+estimatedSlippage+estimatedFunding;
   const reservedCapital=margin+estimatedOpenFee+estimatedFunding;
   const minNotional=rules?.minNotional||0;
+  const minQty=rules?.minQty||0;
+  const step=rules?.qtyStep||0;
+  const rawMinimumQty=Math.max(minQty,minNotional>0?minNotional/entry:0);
+  const minimumTradableQty=rawMinimumQty>0?(step>0?Math.ceil((rawMinimumQty-1e-12)/step)*step:rawMinimumQty):null;
+  const minimumTradableNotional=minimumTradableQty===null?null:minimumTradableQty*entry;
+  const minimumGrossStopLoss=minimumTradableQty===null?null:minimumTradableQty*distance;
+  const minimumFees=minimumTradableNotional===null?null:minimumTradableNotional*roundTripFeesPct;
+  const minimumSlippage=minimumTradableNotional===null?null:minimumTradableNotional*slippagePct;
+  const minimumFunding=minimumTradableNotional===null?null:minimumTradableNotional*fundingPct;
+  const minimumStopCost=minimumGrossStopLoss===null?null:minimumGrossStopLoss+minimumFees+minimumSlippage+minimumFunding;
+  const minimumMargin=minimumTradableNotional===null?null:(market==='spot'?minimumTradableNotional:minimumTradableNotional/leverage);
+  const minimumReservedCapital=minimumTradableNotional===null?null:minimumMargin+minimumTradableNotional*feeRate+minimumFunding;
+  const equityForRisk=minimumStopCost===null?null:minimumStopCost/(riskPct/100);
+  const equityForMargin=minimumReservedCapital===null?null:minimumReservedCapital/marginUtilization;
+  const minimumRequiredEquity=equityForRisk===null?null:Math.max(equityForRisk,equityForMargin||0);
+  const minimumOrderFitsRisk=minimumStopCost!==null&&minimumStopCost<=riskBudget*1.005;
+  const minimumOrderFitsMargin=minimumReservedCapital!==null&&minimumReservedCapital<=capitalBudget+1e-9;
+  const minimumOrderFeasible=minimumOrderFitsRisk&&minimumOrderFitsMargin&&(!rules||rules.status==='TRADING');
   const checks=[];
   if(rules&&rules.status!=='TRADING')checks.push(`交易状态为 ${rules.status}，不是TRADING`);
   if(rules&&qty<rules.minQty)checks.push(`数量 ${qty} 低于最小数量 ${rules.minQty}`);
@@ -104,11 +122,16 @@ export function calculatePosition({equity,riskPct,entry,stop,leverage=1,feeRate=
   if(totalStopCost>riskBudget*1.005)checks.push('数量取整后含手续费、滑点和资金费率的止损成本超过风险预算');
   if(reservedCapital>capitalBudget+1e-9)checks.push(`保证金及预留成本 ${reservedCapital.toFixed(4)} 超过可用保证金预算 ${capitalBudget.toFixed(4)}`);
   if(qty<=0)checks.push('按交易所数量步长取整后仓位为0');
+  const feasibilityReasons=[];
+  if(minimumTradableQty!==null&&!minimumOrderFitsRisk)feasibilityReasons.push(`交易所最小可交易数量 ${minimumTradableQty} 的预计止损成本 ${minimumStopCost.toFixed(4)} USDT，超过风险预算 ${riskBudget.toFixed(4)} USDT`);
+  if(minimumTradableQty!==null&&!minimumOrderFitsMargin)feasibilityReasons.push(`最小可交易数量预计占用保证金及预留成本 ${minimumReservedCapital.toFixed(4)} USDT，超过可用预算 ${capitalBudget.toFixed(4)} USDT`);
+  if(minimumRequiredEquity!==null&&(!minimumOrderFitsRisk||!minimumOrderFitsMargin))feasibilityReasons.push(`在当前止损、费用、风险比例和保证金利用率下，满足最小交易单位所需权益约 ${minimumRequiredEquity.toFixed(2)} USDT（仅为估算，不代表建议加资）`);
   return {
     riskBudget,riskNotional,marginNotional,notional:actualNotional,qty,qtyRaw,margin,
     capitalBudget,reservedCapital,grossStopLoss,estimatedOpenFee,estimatedCloseFee,estimatedFees,
     estimatedSlippage,estimatedFunding,totalStopCost,distance,distancePct,leverage,
-    effectiveLossPct:totalCostPct,marginUtilization,checks,admissible:checks.length===0
+    effectiveLossPct:totalCostPct,marginUtilization,checks,admissible:checks.length===0,
+    minimumOrder:{qty:minimumTradableQty,notional:minimumTradableNotional,stopCost:minimumStopCost,requiredEquity:minimumRequiredEquity,margin:minimumMargin,reservedCapital:minimumReservedCapital,fitsRisk:minimumOrderFitsRisk,fitsMargin:minimumOrderFitsMargin,feasible:minimumOrderFeasible,reasons:feasibilityReasons}
   };
 }
 
@@ -132,5 +155,7 @@ export function evaluateAdmission({side,structure,stop,targets,position}){
   if(!targets?.finalTargets?.length)reasons.push('没有有效止盈目标');
   if(!position)reasons.push('止损或输入条件不合格，未生成可执行仓位');
   const status=reasons.length?'REJECTED':warnings.length?'CAUTION':'APPROVED';
-  return {status,directionAlignment,structureValid:!!structure,stopValid:!!stop?.valid,marginSufficient:!!position&&!position.checks.some(x=>/保证金/.test(x)),rewardRiskValid,reasons,warnings};
+  const marginSufficient=!!position&&(position.qty>0?position.reservedCapital<=position.capitalBudget+1e-9:position.minimumOrder?.fitsMargin===true);
+  if(position?.qty<=0&&position?.minimumOrder?.reasons?.length)warnings.push(...position.minimumOrder.reasons);
+  return {status,directionAlignment,structureValid:!!structure,stopValid:!!stop?.valid,marginSufficient,rewardRiskValid,reasons,warnings};
 }

@@ -1,6 +1,6 @@
-export function makePlan({market,symbol,timeframe,side,entry,live,mark,equity,riskPct,leverage,structure,stop,targets,position,rules,admission,assumptions}){
+export function makePlan({market,symbol,timeframe,side,entry,live,mark,equity,riskPct,leverage,structure,stop,targets,position,rules,admission,management,assumptions}){
   return {
-    app:'PA Position Manager',version:'1.0.1',generatedAt:new Date().toISOString(),
+    app:'PA Position Manager',version:'1.0.2',generatedAt:new Date().toISOString(),
     market:{type:market,symbol,timeframe,livePrice:live,markPrice:mark,dataTime:structure?.dataTime??null},
     trade:{side,plannedEntry:entry,accountEquity:equity,riskPct,leverage},
     priceAction:structure?{
@@ -11,7 +11,7 @@ export function makePlan({market,symbol,timeframe,side,entry,live,mark,equity,ri
       invalidatedLows:structure.invalidatedLows,invalidatedHighs:structure.invalidatedHighs,
       support:structure.support,resistance:structure.resistance,closedBars:structure.closedBars,dataTime:structure.dataTime
     }:null,
-    risk:{stop,targets,position,exchangeRules:rules?{
+    risk:{stop,targets,position,management,exchangeRules:rules?{
       status:rules.status,minQty:rules.minQty,qtyStep:rules.qtyStep,minNotional:rules.minNotional,
       priceTick:rules.priceTick,contractType:rules.contractType
     }:null,assumptions},

@@ -2,6 +2,7 @@ import {getTicker,getKlines,getSymbolRules} from './api/binance.js';
 import {analyzeStructure} from './price-action/structure.js';
 import {deriveStops,targets,calculatePosition,evaluateAdmission,roundDown} from './risk/position.js';
 import {makePlan} from './output/plan.js';
+import {buildManagementPlan} from './risk/management.js';
 
 const $=id=>document.getElementById(id);
 let ticker=null,structure=null,rules=null,lastPlan=null;
@@ -87,17 +88,18 @@ function calc(){
   if(entryDriftPct!==null&&entryDriftPct>0.005)admission.warnings.push(`计划入场价与实时价偏离 ${(entryDriftPct*100).toFixed(2)}%，请重新确认挂单位置`);
   if(!rules)admission.warnings.push('未获取到交易所过滤器，数量步长/最小下单金额尚未验证');
   if(admission.status!=='REJECTED'&&admission.warnings.length)admission.status='CAUTION';
+  const management=buildManagementPlan({side,entry,stop:stopObj.valid?stopObj.stop:null,targets:targetSet,position,rules,admissionStatus:admission.status});
 
   setResult('stopOut',stopObj.valid?fmt(stopObj.stop,8):'无有效止损');
   $('stopReason').textContent=stopObj.reason+(stopObj.warnings?.length?`；${stopObj.warnings.join('；')}`:'');
   targetSet.finalTargets.forEach((t,i)=>{setResult(`tp${i+1}Out`,fmt(t.price,8));setResult(`tp${i+1}RR`,`风险收益比 ${t.rr.toFixed(2)}R${t.source==='STRUCTURE_CLIPPED'?' · 结构阻挡':''}`)});
   if(!stopObj.valid){['tp1Out','tp2Out','tp3Out','tp1RR','tp2RR','tp3RR'].forEach(id=>setResult(id,'—'));}
   setResult('riskOut',position?`${fmt(position.riskBudget,4)} USDT`:'—');
-  setResult('notionalOut',position?`${fmt(position.notional,4)} USDT`:'—');
-  setResult('marginOut',position?(market()==='spot'?'全额现货资金':`${fmt(position.margin,4)} USDT`):'—');
-  setResult('qtyOut',position?fmt(position.qty,8):'—');
+  setResult('notionalOut',position?(position.admissible?`${fmt(position.notional,4)} USDT`:'不可执行'):'—');
+  setResult('marginOut',position?(position.admissible?(market()==='spot'?'全额现货资金':`${fmt(position.margin,4)} USDT`):'不可执行'):'—');
+  setResult('qtyOut',position?(position.admissible?fmt(position.qty,8):'不可执行'):'—');
   setResult('distanceOut',stopObj.valid?`${fmt(stopObj.distance,8)} (${(stopObj.distancePct*100).toFixed(3)}%)`:'—');
-  setResult('lossOut',position?`${fmt(position.totalStopCost,4)} USDT`:'—');
+  setResult('lossOut',position?(position.admissible?`${fmt(position.totalStopCost,4)} USDT`:'不可执行'):'—');
 
   const admissionEl=$('admission');
   admissionEl.className=`admission ${admission.status==='REJECTED'?'bad':admission.status==='CAUTION'?'warn':'good'}`;
@@ -112,12 +114,18 @@ function calc(){
     ['资金费率预留',position?`${fmt(position.estimatedFunding,4)} USDT`:'—','按用户填写的持仓期间总比例估算'],
     ['保证金及预留成本',position?`${fmt(position.reservedCapital,4)} USDT`:'—',`可用预算 ${fmt(position?.capitalBudget,4)} USDT`],
     ['交易所最小名义价值',rules?.minNotional?`${rules.minNotional} USDT`:'未知','以实际交易对规则为准'],
+    ['最小可交易数量',position?.minimumOrder?.qty!==null&&position?.minimumOrder?.qty!==undefined?fmt(position.minimumOrder.qty,8):'未知','按最小数量与最小名义价值、数量步长计算'],
+    ['最小仓位预计止损成本',position?.minimumOrder?.stopCost!==null&&position?.minimumOrder?.stopCost!==undefined?`${fmt(position.minimumOrder.stopCost,4)} USDT`:'未知',`当前风险预算 ${fmt(position?.riskBudget,4)} USDT`],
+    ['满足最小交易单位所需权益',position?.minimumOrder?.requiredEquity!==null&&position?.minimumOrder?.requiredEquity!==undefined?`${fmt(position.minimumOrder.requiredEquity,2)} USDT`:'未知','同时考虑风险预算和保证金预留的估算值，不是加资建议'],
     ['数量步长',rules?.qtyStep??'未知','按交易所 LOT_SIZE 过滤器'],
     ['实时价格',ticker?fmt(ticker.price,8):'未获取','不替代计划入场价'],
     ['标记价格',ticker?.markPrice?fmt(ticker.markPrice,8):'不适用','合约风险参考之一']
   ];
   $('detailRows').innerHTML=rows.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('');
-  lastPlan=makePlan({market:market(),symbol:symbol(),timeframe:timeframe(),side,entry,live,mark:ticker?.markPrice??null,equity:+$('equity').value,riskPct:+$('riskPct').value,leverage:+$('leverage').value,structure,stop:stopObj,targets:targetSet,position,rules,admission,assumptions:{feeRatePerSide:+$('feeRate').value,slippagePct:+$('slippagePct').value/100,fundingPct:+$('fundingPct').value/100,marginUtilization:+$('marginUtilization').value}});
+  const managementEl=$('managementOut');
+  managementEl.className=`management ${management.executionAllowed?'ready':'conditional'}`;
+  managementEl.innerHTML=`<p><strong>${management.status==='READY'?'可执行管理模板':management.status==='READY_WITH_CAUTION'?'管理模板可用 · 先核实警告':'条件式管理模板 · 当前不可开仓'}</strong></p><p>${management.explanation}</p><div class="management-grid">${management.scaleOut.map(x=>`<article><small>${x.name} · ${x.allocationPct}%</small><strong>${x.price===null?'未生成':fmt(x.price,8)}</strong><span>${x.rr===null?'—':`${x.rr.toFixed(2)}R`} · ${x.quantity===null?'无可执行数量':`${fmt(x.quantity,8)} 数量`}</span><p>${x.action}</p></article>`).join('')}</div><ul><li>TP1后：${management.protectionAfterTP1.action}（参考价 ${fmt(management.protectionAfterTP1.illustrativeStop,8)}，实际需覆盖费用）</li><li>TP2后：${management.protectionAfterTP2.action}</li><li>提前退出：${management.earlyExit.trigger}；${management.earlyExit.action}</li><li>计划失效：${management.invalidation.trigger}；${management.invalidation.action}</li></ul><p>${management.operatingRules.join('；')}</p>`;
+  lastPlan=makePlan({market:market(),symbol:symbol(),timeframe:timeframe(),side,entry,live,mark:ticker?.markPrice??null,equity:+$('equity').value,riskPct:+$('riskPct').value,leverage:+$('leverage').value,structure,stop:stopObj,targets:targetSet,position,rules,admission,management,assumptions:{feeRatePerSide:+$('feeRate').value,slippagePct:+$('slippagePct').value/100,fundingPct:+$('fundingPct').value/100,marginUtilization:+$('marginUtilization').value}});
   $('copyBtn').disabled=false;$('downloadBtn').disabled=false;return lastPlan;
 }
 
