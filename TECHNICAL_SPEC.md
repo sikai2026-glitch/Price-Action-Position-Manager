@@ -1,79 +1,78 @@
-# PA Position Manager — Technical Specification V1.0
+# PA Position Manager — Technical Specification V1.0.1
 
 ## 1. Product objective
-A GitHub Pages-hosted, mobile-first decision-support tool for Binance Spot, USDⓈ-M perpetuals, and USDⓈ-M `TRADIFI_PERPETUAL`. It combines manually specified planned entry with live market data, deterministic price-action structure analysis, structure-first stop placement with ATR buffer, R-based targets, and risk-budget-driven position sizing.
+A static, mobile-first decision-support tool for Binance Spot, USDⓈ-M perpetuals, and USDⓈ-M `TRADIFI_PERPETUAL`. It combines a manually specified planned entry with live public market data, deterministic price-action structure analysis, structure-first stops with ATR buffers, separate R-multiple and structural targets, and risk sizing constrained by both loss budget and available collateral.
 
 ## 2. Non-goals
-No account authentication, private endpoints, API-key storage, order placement, automated trade execution, portfolio synchronization, persistent snapshot database, or claims of guaranteed profitability.
+No account authentication, private endpoints, API-key storage, order placement, automated execution, portfolio synchronization, persistent snapshot database, liquidation-price estimates, or guaranteed-profit claims.
 
-## 3. User workflow
-1. Select market class and symbol.
-2. Fetch public ticker and exchange metadata.
-3. Enter side, planned entry, account equity, risk %, leverage, fee rate.
-4. Fetch 300 candles for selected timeframe; exclude the currently open candle for structure analysis.
-5. Calculate confirmed pivots, swing classification, trend heuristic, BOS/CHoCH heuristic, liquidity sweep hint, ATR and EMA context.
-6. Generate stop from latest confirmed swing ± ATR buffer (or ATR/manual mode).
-7. Generate TP1/TP2/TP3 at 1.5R/2.5R/3.5R, capped by the nearest opposing pivot for TP3; allow manual TP1/TP2 override.
-8. Calculate quantity/notional/margin and exchange-rule checks.
-9. Export a JSON plan.
+## 3. Workflow
+1. Select market and symbol; retrieve ticker and exchange filters.
+2. Enter direction, planned entry, equity, risk %, leverage, fee, margin utilization, slippage and funding allowances.
+3. Retrieve up to 300 OHLCV candles; exclude the still-open final candle.
+4. Identify confirmed pivots, HH/HL/LH/LL, trend, close-confirmed BOS/CHoCH, sweep hints, ATR and EMA context.
+5. Mark pivots invalid if a later closed candle closes through them. Only unbroken protective pivots on the correct side of planned entry can anchor structure stops.
+6. Apply ATR buffer and exchange price tick rounding. If no valid structural anchor exists, do not fabricate a stop; return a rejected admission result.
+7. Calculate R-multiple targets independently from structural targets. Flag structural obstacles; do not silently move R targets to arbitrary prices.
+8. Calculate position size from the lower of risk-budget capacity and collateral capacity, round quantity down, then recompute actual costs.
+9. Apply hard admission checks and export a JSON plan, including reasons and warnings.
 
-## 4. Market data
-### Spot
-`GET https://data-api.binance.vision/api/v3/exchangeInfo`
-`GET /api/v3/ticker/price?symbol=...`
-`GET /api/v3/ticker/24hr?symbol=...`
-`GET /api/v3/klines?symbol=...&interval=...&limit=300`
+## 4. Price-action definitions
+- Pivot high/low: strictly more extreme than `strength` candles on both sides; confirmation is delayed until right-side candles exist.
+- Pivot invalidation: a later closed candle closes above a pivot high or below a pivot low. Wick-only breaches do not invalidate a pivot in this version.
+- Trend heuristic: last two confirmed highs and lows; HH+HL bullish, LH+LL bearish, mixed pairs mixed, otherwise range.
+- BOS/CHoCH: latest closed candle crosses the most recent confirmed pivot on a closing basis; opposite-to-prior-trend break is labeled CHoCH, otherwise BOS. This is a deterministic heuristic, not a universal definition.
+- Long protective stop anchor: latest unbroken confirmed swing low below planned entry. Short protective stop anchor: latest unbroken confirmed swing high above planned entry.
+- Support/resistance: nearest unbroken confirmed pivot relative to latest closed price.
+- Liquidity sweep hint: latest closed candle wicks beyond the prior confirmed pivot and closes back inside.
+- ATR: ATR(14); default structure buffer is 0.2 ATR. Stop distance below 0.1 ATR or above 4 ATR generates a warning.
+- OB/FVG are not automatically inferred in V1.0.1.
 
-### USDⓈ-M perpetual
-`GET https://fapi.binance.com/fapi/v1/exchangeInfo`
-`GET /fapi/v1/ticker/price?symbol=...`
-`GET /fapi/v1/premiumIndex?symbol=...`
-`GET /fapi/v1/ticker/24hr?symbol=...`
-`GET /fapi/v1/klines?symbol=...&interval=...&limit=300`
+## 5. Risk model
+Let `R` be risk budget, `d` stop distance as a fraction of entry, `f` one-way fee rate, `s` round-trip slippage allowance, and `u` funding allowance over intended holding period.
 
-### TradFi perpetual
-Use USDⓈ-M exchange metadata and restrict market type to `TRADIFI_PERPETUAL`; candle request uses `/fapi/v1/continuousKlines` with `pair`, `contractType=TRADIFI_PERPETUAL`, `interval`, and `limit`. Symbol and ticker availability must be checked per listed product. Unsupported data remains null/unavailable, never synthesized.
+`riskNotional = R / (d + 2f + s + u)`
 
-## 5. Normalized candle schema
-`{time, open, high, low, close, volume, closeTime, quoteVolume, trades, takerBuyBase, takerBuyQuote}`.
-This schema is compatible with SMI-style market snapshots and supports downstream indicator calculation.
+`capitalBudget = equity × marginUtilization`
 
-## 6. Price-action rules
-- Pivots: a candle is a swing high/low only if its high/low is strictly more extreme than `strength` candles on both sides. This means a pivot is confirmed with a delay.
-- Trend heuristic: compare the last two confirmed swing highs and lows. HH+HL => bullish; LH+LL => bearish; mixed pairs => mixed; otherwise range/unconfirmed.
-- BOS/CHoCH: latest closed candle close beyond the latest confirmed swing high/low. The previous trend heuristic determines BOS versus CHoCH label.
-- Liquidity sweep hint: latest closed candle wicks beyond the prior confirmed swing and closes back inside.
-- ATR: Wilder ATR(14).
-- EMA context: EMA20 and EMA50.
-- Support/resistance: nearest confirmed pivot below/above latest close.
+`collateralPerNotional = (spot ? 1 : 1/leverage) + 2f + u`
 
-These are explicit, testable heuristics; they are not a claim that a single canonical market-structure definition exists. V1.0 does not automatically identify OB/FVG.
+`marginNotional = capitalBudget / collateralPerNotional`
 
-## 7. Risk calculation
-- Risk budget = equity × riskPct / 100.
-- Stop distance = absolute(entry - stop).
-- Estimated round-trip fee allowance = 2 × feeRate × notional.
-- Notional = riskBudget / (stopDistance/entry + 2×feeRate).
-- Quantity = notional / entry, rounded down to exchange quantity step.
-- Actual stop cost = quantity × stopDistance + estimated round-trip fees.
-- Futures initial margin estimate = notional / leverage; Spot cash requirement = notional.
-- Validate status, minQty, qtyStep, minNotional when exchange filters expose them.
-- Funding and slippage are not included in V1.0; user should allow additional risk buffer.
+`rawNotional = min(riskNotional, marginNotional)`
 
-## 8. Architecture
-Static ES modules: API adapters → normalized candles → indicators → price-action engine → stop/target engine → position risk engine → JSON plan. GitHub Pages requires no build process. Service worker caches static assets only; Binance API responses are not persisted.
+Quantity is rounded down to exchange step. Stop loss, open/close fees, slippage and funding allowance are recomputed after rounding. Admission fails on trading status, minQty, minNotional, risk-budget excess, zero quantity, or reserved collateral above budget. Default margin utilization is 80%, leaving a collateral reserve.
 
-## 9. Error handling
-Timeouts, HTTP errors, unavailable symbols, malformed inputs, insufficient candles, invalid stop direction, minQty/minNotional violations, and failed clipboard operations must surface in the UI. Missing fields are null/unknown, not fabricated.
+Fees are approximations based on user-entered rate and entry notional; close fee can differ with exit price and maker/taker execution. Funding is a user-entered holding-period allowance, not a live forecast. Slippage is a user-entered round-trip percentage allowance.
+
+## 6. Targets
+- R targets: 1.5R, 2.5R, 3.5R (or valid manual TP1/TP2 overrides).
+- Structural targets: confirmed pivots in the favorable direction from planned entry.
+- R targets remain visible and are not silently clipped. `blockedByStructure` flags when a structural level lies before an R target. If the nearest structural target offers less than 1.5R, admission is rejected for insufficient structure space.
+
+## 7. Admission
+`REJECTED` for invalid/missing stop, opposing BOS/CHoCH, failed position/exchange/collateral checks, missing targets, or insufficient structural room. `CAUTION` for trend conflict, no confirming break, missing exchange metadata, entry drift >0.5%, or stop-quality warnings. `APPROVED` only when no rejection reasons or warnings remain. Admission is a rule-based checklist, not a prediction.
+
+## 8. Market data and architecture
+Static ES modules: API adapters → normalized candles → indicators → price-action engine → stop/target engine → risk engine → admission engine → JSON plan. GitHub Pages needs no build. Service worker caches static files only.
+
+Spot endpoints: `exchangeInfo`, `ticker/price`, `ticker/24hr`, `klines`. USDⓈ-M endpoints: `exchangeInfo`, `ticker/price`, `premiumIndex`, `ticker/24hr`, `klines`. TradFi perpetual candles use `/fapi/v1/continuousKlines` with `contractType=TRADIFI_PERPETUAL`.
+
+## 9. Known limitations
+- Public API availability, CORS, symbol mapping, and TradFi ticker support depend on Binance product availability and region.
+- Pivot and BOS/CHoCH rules are explicit heuristics; no claim of canonical SMC interpretation.
+- No liquidation price: maintenance-margin tiers, mark-price mechanics and product-specific contract multipliers require a separately validated model.
+- Contract multiplier/quantity semantics for every TradFi instrument must be verified before using position sizing on that instrument.
+- No trade execution. Verify exchange filters and actual fees before placing any order.
 
 ## 10. Acceptance criteria
-- Loads without build step on a static HTTPS origin.
-- No API key or private account access.
-- Market switch changes correct public API route.
-- Planned entry remains independent of live ticker refresh.
-- Structure calculation excludes current open candle.
-- Long stop must be below entry; short stop above entry.
-- Quantity rounds down to step size.
-- Min quantity and min notional violations block admission.
-- JSON export contains source timestamp and calculation assumptions.
-- No order execution functionality exists.
+- Static HTTPS deployment; no API key or backend.
+- Manual entry remains independent of live ticker updates.
+- Open candle excluded from structure calculations.
+- Broken pivots cannot anchor structure stops.
+- Invalid structure stop yields no fabricated price and blocks admission.
+- Price tick and quantity step rounding are applied conservatively.
+- Position size is constrained by both risk and collateral budgets.
+- Actual rounded quantity costs are recalculated.
+- R targets and structural targets are separately reported.
+- Admission reasons/warnings and calculation assumptions are included in JSON.

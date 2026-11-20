@@ -6,7 +6,7 @@
   <title>PA Position Manager</title><link rel="manifest" href="./manifest.json"><link rel="stylesheet" href="./css/main.css">
 </head>
 <body>
-<header class="topbar"><div><div class="eyebrow">BINANCE MARKET DATA · PRICE ACTION · RISK ENGINE</div><h1>PA Position Manager <span>V1.0</span></h1></div><div class="status"><i id="apiDot"></i><span id="apiStatus">未连接行情</span></div></header>
+<header class="topbar"><div><div class="eyebrow">BINANCE MARKET DATA · PRICE ACTION · RISK ENGINE</div><h1>PA Position Manager <span>V1.0.1</span></h1></div><div class="status"><i id="apiDot"></i><span id="apiStatus">未连接行情</span></div></header>
 <main>
 <section class="panel market-panel">
   <div class="section-head"><div><span class="step">01</span><h2>市场与行情</h2></div><button id="refreshBtn" class="secondary">刷新行情</button></div>
@@ -27,6 +27,9 @@
     <label>单笔风险 (%)<input id="riskPct" type="number" min="0.1" max="5" step="0.1" value="1"></label>
     <label>杠杆 (仅合约)<select id="leverage"><option>2</option><option selected>3</option><option>5</option><option>10</option></select></label>
     <label>手续费率 (单边，比例)<input id="feeRate" type="number" min="0" step="0.0001" value="0.0005"></label>
+    <label>保证金利用率<input id="marginUtilization" type="number" min="0.1" max="1" step="0.05" value="0.8"></label>
+    <label>往返滑点预留 (%)<input id="slippagePct" type="number" min="0" step="0.01" value="0.02"></label>
+    <label>持仓期资金费率预留 (%)<input id="fundingPct" type="number" min="0" step="0.01" value="0"></label>
   </div>
   <div class="inline-actions"><button id="useLiveBtn" class="secondary">将实时价格填入入场价</button><label class="check"><input type="checkbox" id="useMark" checked> 合约风险计算参考标记价格</label></div>
 </section>
@@ -71,7 +74,7 @@
   <div class="table-wrap"><table><thead><tr><th>项目</th><th>数值</th><th>说明</th></tr></thead><tbody id="detailRows"><tr><td colspan="3">尚无计算结果</td></tr></tbody></table></div>
   <div class="inline-actions"><button id="copyBtn" class="primary" disabled>复制交易计划 JSON</button><button id="downloadBtn" class="secondary" disabled>导出 JSON</button></div>
 </section>
-<footer><p>PA Position Manager V1.0 · 仅提供行情分析与风险计算，不构成投资建议，不执行交易。</p><p>行情可能延迟或不可用。下单前请在币安核对标记价格、交易规则、最小名义价值、数量步长及维持保证金档位。</p></footer>
+<footer><p>PA Position Manager V1.0.1 · 仅提供行情分析与风险计算，不构成投资建议，不执行交易。</p><p>行情可能延迟或不可用。下单前请在币安核对标记价格、交易规则、最小名义价值、数量步长及维持保证金档位。</p></footer>
 </main>
 <script type="module" src="./js/app.js"></script>
 </body></html>
