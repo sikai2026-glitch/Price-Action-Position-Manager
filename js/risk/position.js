@@ -40,55 +40,67 @@ export function deriveStops({side,entry,structure,buffer=0.2,mode='structure',ma
 }
 
 function makeRTarget(side,entry,risk,r){
-  return {name:`${r}R`,price:side==='LONG'?entry+r*risk:entry-r*risk,rr:r,source:'R_MULTIPLE'};
+  const price=side==='LONG'?entry+r*risk:entry-r*risk;
+  return {name:`${r}R`,price,rr:r,source:'R_MULTIPLE',valid:price>0};
 }
 
-export function targets({side,entry,stop,structure,manualTp1=null,manualTp2=null}){
-  if(!directionalStopValid(side,entry,stop))return {method:'STRUCTURE_FIRST_R_FALLBACK',rrTargets:[],structureTargets:[],finalTargets:[],warnings:['止损无效，无法计算止盈']};
-  const risk=Math.abs(entry-stop);
-  const rrTargets=[1.5,2.5,3.5].map(r=>makeRTarget(side,entry,risk,r));
+/**
+ * Build a target ladder in price order from the entry toward the profit side.
+ * At each R boundary, select the nearest still-valid opposing pivot, not the
+ * farthest pivot inside the boundary. Invalid/non-positive fallback prices are
+ * never emitted as executable targets.
+ */
+export function targets({side,entry,stop,structure,manualTp1=null,manualTp2=null,tickSize=0}){
+  if(!directionalStopValid(side,entry,stop))return {method:'NEAREST_STRUCTURE_WITH_POSITIVE_R_FALLBACK',rrTargets:[],structureTargets:[],finalTargets:[],warnings:['止损无效，无法计算止盈']};
+  const risk=Math.abs(entry-stop),long=side==='LONG';
+  const rawR=[1.5,2.5,3.5].map(r=>makeRTarget(side,entry,risk,r));
   const warnings=[];
-  const long=side==='LONG';
-
-  // Use only confirmed, still-valid opposing pivots as structural profit targets.
-  // Broken pivots are deliberately excluded: they have already been taken by price.
+  const rrTargets=rawR.map(t=>({...t,price:t.price>0?t.price:null,valid:t.price>0,invalidReason:t.price>0?null:'R倍数推算结果不大于0，不能作为价格目标'}));
   const pivotList=long?(structure?.pivots?.highs||[]):(structure?.pivots?.lows||[]);
-  const candidates=pivotList.filter(p=>p.valid===true&&(long?p.price>entry:p.price<entry));
-  const unique=[...new Map(candidates.map(p=>[`${p.index}:${p.price}`,p])).values()];
-  unique.sort((a,b)=>long?a.price-b.price:b.price-a.price);
+  const inDirection=pivotList.filter(p=>p.valid===true&&Number.isFinite(p.price)&&p.price>0&&(long?p.price>entry:p.price<entry));
+  // Deduplicate identical/near-identical price levels; preserve the most recent pivot.
+  const sortedPivots=inDirection.slice().sort((a,b)=>long?a.price-b.price:b.price-a.price);
+  const tolerance=Math.max(tickSize||0,(structure?.atr||0)*0.15,entry*1e-8);
+  const unique=[];
+  for(const pivot of sortedPivots){
+    const existing=unique.find(x=>Math.abs(x.price-pivot.price)<=tolerance);
+    if(!existing)unique.push(pivot);
+    else if(pivot.index>existing.index)Object.assign(existing,pivot);
+  }
   const structureTargets=unique.map((p,i)=>({name:`结构目标${i+1}`,price:p.price,rr:Math.abs(p.price-entry)/risk,source:'STRUCTURE',referenceIndex:p.index,referenceTime:p.time}));
 
-  // Use the nearest confirmed opposing pivot before each R-multiple objective.
-  // This places exits at real structural barriers instead of blindly targeting through them.
   const finalTargets=[];
   for(let i=0;i<rrTargets.length;i++){
     const rTarget=rrTargets[i];
     const previous=finalTargets.at(-1)?.price;
-    const beforeTarget=structureTargets.filter(t=>long
+    const eligible=structureTargets.filter(t=>long
       ?t.price>entry&&t.price<=rTarget.price&&(previous===undefined||t.price>previous)
       :t.price<entry&&t.price>=rTarget.price&&(previous===undefined||t.price<previous));
-    const chosen=beforeTarget.length
-      ?beforeTarget.sort((a,b)=>long?b.price-a.price:a.price-b.price)[0]
-      :null;
-    finalTargets.push(chosen
-      ?{...chosen,name:`TP${i+1}`,source:'STRUCTURE',blockedByStructure:false,rr:Math.abs(chosen.price-entry)/risk,referenceIndex:chosen.referenceIndex}
-      :{...rTarget,name:`TP${i+1}`,blockedByStructure:false,nearestStructureTarget:null});
+    // Nearest level to the previous target/entry is the first obstacle encountered.
+    eligible.sort((a,b)=>long?a.price-b.price:b.price-a.price);
+    const chosen=eligible[0]||null;
+    if(chosen){
+      finalTargets.push({...chosen,name:`TP${i+1}`,blockedByStructure:false});
+    }else if(rTarget.price>0&& (previous===undefined||(long?rTarget.price>previous:rTarget.price<previous))){
+      finalTargets.push({...rTarget,name:`TP${i+1}`,blockedByStructure:false});
+    }else{
+      warnings.push(`${rTarget.name}目标无效或已越过前一目标，已跳过，不生成虚假点位`);
+    }
   }
-  // Manual targets, when supplied, override the corresponding calculated target only
-  // when they preserve direction and monotonic target ordering.
+  // Manual targets override only when they remain positive, directional and ordered.
   for(const [i,manual] of [[0,manualTp1],[1,manualTp2]]){
     if(!(manual>0))continue;
     const directionOK=long?manual>entry:manual<entry;
-    const previousOK=i===0||(long?manual>finalTargets[i-1].price:manual<finalTargets[i-1].price);
-    const nextOK=i>=finalTargets.length-1||(long?manual<finalTargets[i+1].price:manual>finalTargets[i+1].price);
-    if(directionOK&&previousOK&&nextOK)finalTargets[i]={...finalTargets[i],price:manual,rr:Math.abs(manual-entry)/risk,source:'MANUAL'};
+    const previousOK=i===0||(finalTargets[i-1]&&(long?manual>finalTargets[i-1].price:manual<finalTargets[i-1].price));
+    const nextOK=i>=finalTargets.length-1||(finalTargets[i+1]&&(long?manual<finalTargets[i+1].price:manual>finalTargets[i+1].price));
+    if(directionOK&&previousOK&&nextOK&&finalTargets[i])finalTargets[i]={...finalTargets[i],price:manual,rr:Math.abs(manual-entry)/risk,source:'MANUAL'};
     else warnings.push(`手动TP${i+1}方向错误或破坏止盈顺序，已保留自动计算目标`);
   }
-  if(!structureTargets.length)warnings.push('没有找到入场方向前方尚未被突破的有效结构目标，TP使用1.5R/2.5R/3.5R公式补位');
-  if(finalTargets.length<3)warnings.push(`有效目标仅有 ${finalTargets.length} 个；请勿把缺失目标视为可执行止盈档位`);
+  if(!structureTargets.length)warnings.push('没有找到有效的前方结构目标；仅使用价格为正且顺序有效的R倍数目标');
+  if(finalTargets.length<3)warnings.push(`仅生成 ${finalTargets.length} 个有效止盈目标；剩余档位留空，不使用负价格或重复点位补足`);
   if(finalTargets.length&&Math.max(...finalTargets.map(t=>t.rr))<1.5)warnings.push('所有可用目标均不足1.5R，风险收益空间不足');
-  if(finalTargets.some(t=>!Number.isFinite(t.rr)||t.rr<=0))warnings.push('存在方向错误或无效的止盈价格');
-  return {method:'STRUCTURE_FIRST_R_FALLBACK',rrTargets,structureTargets,finalTargets,warnings};
+  if(finalTargets.some(t=>!Number.isFinite(t.rr)||t.rr<=0||t.price<=0))warnings.push('存在无效止盈目标');
+  return {method:'NEAREST_VALID_STRUCTURE_POSITIVE_R_FALLBACK',rrTargets,structureTargets,finalTargets,warnings};
 }
 
 /** Risk size is capped by both loss budget and available collateral; fees/funding/slippage are explicit. */
@@ -105,13 +117,15 @@ export function calculatePosition({equity,riskPct,entry,stop,leverage=1,feeRate=
   const totalCostPct=distancePct+roundTripFeesPct+slippagePct+fundingPct;
   const riskNotional=riskBudget/totalCostPct;
   const capitalBudget=equity*marginUtilization;
-  const collateralPerNotional=(1/leverage)+roundTripFeesPct+fundingPct;
+  const spotMode=market==='spot';
+  const effectiveLeverage=spotMode?1:leverage;
+  const collateralPerNotional=(1/effectiveLeverage)+roundTripFeesPct+fundingPct;
   const marginNotional=capitalBudget/collateralPerNotional;
   const notionalCap=Math.min(riskNotional,marginNotional);
   const qtyRaw=notionalCap/entry;
   const qty=roundDown(qtyRaw,rules?.qtyStep||0);
   const actualNotional=qty*entry;
-  const margin=actualNotional/leverage;
+  const margin=actualNotional/effectiveLeverage;
   const grossStopLoss=qty*distance;
   const estimatedOpenFee=actualNotional*feeRate;
   const estimatedCloseFee=actualNotional*feeRate;
@@ -131,7 +145,7 @@ export function calculatePosition({equity,riskPct,entry,stop,leverage=1,feeRate=
   const minimumSlippage=minimumTradableNotional===null?null:minimumTradableNotional*slippagePct;
   const minimumFunding=minimumTradableNotional===null?null:minimumTradableNotional*fundingPct;
   const minimumStopCost=minimumGrossStopLoss===null?null:minimumGrossStopLoss+minimumFees+minimumSlippage+minimumFunding;
-  const minimumMargin=minimumTradableNotional===null?null:(minimumTradableNotional/leverage);
+  const minimumMargin=minimumTradableNotional===null?null:(minimumTradableNotional/effectiveLeverage);
   const minimumReservedCapital=minimumTradableNotional===null?null:minimumMargin+minimumTradableNotional*feeRate+minimumFunding;
   const equityForRisk=minimumStopCost===null?null:minimumStopCost/(riskPct/100);
   const equityForMargin=minimumReservedCapital===null?null:minimumReservedCapital/marginUtilization;
@@ -151,11 +165,11 @@ export function calculatePosition({equity,riskPct,entry,stop,leverage=1,feeRate=
   if(minimumTradableQty!==null&&!minimumOrderFitsMargin)feasibilityReasons.push(`最小可交易数量预计占用保证金及预留成本 ${minimumReservedCapital.toFixed(4)} USDT，超过可用预算 ${capitalBudget.toFixed(4)} USDT`);
   if(minimumRequiredEquity!==null&&(!minimumOrderFitsRisk||!minimumOrderFitsMargin))feasibilityReasons.push(`在当前止损、费用、风险比例和保证金利用率下，满足最小交易单位所需权益约 ${minimumRequiredEquity.toFixed(2)} USDT（仅为估算，不代表建议加资）`);
   return {
-    marginType:'USDT-M',marginAsset:'USDT',settlementAsset:'USDT',
+    marginType:spotMode?'SPOT':market==='tradfi'?'TRADFI':'USDT-M',marginAsset:'USDT',settlementAsset:'USDT',
     riskBudget,riskNotional,marginNotional,notional:actualNotional,qty,qtyRaw,margin,
     capitalBudget,reservedCapital,grossStopLoss,estimatedOpenFee,estimatedCloseFee,estimatedFees,
-    estimatedSlippage,estimatedFunding,totalStopCost,distance,distancePct,leverage,
-    effectiveLossPct:totalCostPct,marginUtilization,checks,admissible:checks.length===0,
+    estimatedSlippage,estimatedFunding,totalStopCost,distance,distancePct,
+    effectiveLossPct:totalCostPct,marginUtilization,leverage:effectiveLeverage,checks,admissible:checks.length===0,
     minimumOrder:{qty:minimumTradableQty,notional:minimumTradableNotional,stopCost:minimumStopCost,requiredEquity:minimumRequiredEquity,margin:minimumMargin,reservedCapital:minimumReservedCapital,fitsRisk:minimumOrderFitsRisk,fitsMargin:minimumOrderFitsMargin,feasible:minimumOrderFeasible,reasons:feasibilityReasons}
   };
 }

@@ -70,3 +70,33 @@ test('structural target clips the R target when a confirmed pivot lies before it
   assert.equal(t.finalTargets[0].source,'STRUCTURE');
   assert.ok(t.finalTargets[0].rr<1.5);
 });
+
+
+test('short target ladder selects nearest valid support pivots and never emits negative prices',()=>{
+  const t=targets({side:'SHORT',entry:0.243,stop:0.3214,structure:{pivots:{highs:[],lows:[
+    {index:272,price:0.1924,time:272,valid:true},
+    {index:241,price:0.1329,time:241,valid:true},
+    {index:223,price:0.1121,time:223,valid:true},
+    {index:217,price:0.1099,time:217,valid:true},
+    {index:193,price:0.1006,time:193,valid:true},
+    {index:205,price:0.1006,time:205,valid:true}
+  ]}}});
+  assert.deepEqual(t.finalTargets.map(x=>x.price),[0.1924,0.1329,0.1121]);
+  assert.ok(t.finalTargets.every(x=>x.price>0));
+  assert.ok(t.finalTargets[0].price>t.finalTargets[1].price&&t.finalTargets[1].price>t.finalTargets[2].price);
+  assert.ok(t.warnings.some(x=>x.includes('3.5R'))===false);
+});
+
+test('non-positive R fallback is skipped when no positive structural target exists',()=>{
+  const t=targets({side:'SHORT',entry:0.1,stop:0.2,structure:{pivots:{highs:[],lows:[]}}});
+  assert.ok(t.finalTargets.every(x=>x.price>0));
+  assert.ok(t.finalTargets.length<3);
+  assert.ok(t.warnings.some(x=>x.includes('已跳过')));
+});
+
+test('spot sizing reserves full USDT notional and does not apply leverage',()=>{
+  const p=calculatePosition({equity:100,riskPct:1,entry:10,stop:9,leverage:10,feeRate:0,side:'LONG',market:'spot'});
+  assert.equal(p.marginType,'SPOT');
+  assert.equal(p.leverage,1);
+  assert.ok(Math.abs(p.margin-p.notional)<1e-9);
+});

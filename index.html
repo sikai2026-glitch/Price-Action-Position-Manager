@@ -6,12 +6,12 @@
   <title>PA Position Manager</title><link rel="manifest" href="./manifest.json"><link rel="stylesheet" href="./css/main.css">
 </head>
 <body>
-<header class="topbar"><div><div class="eyebrow">BINANCE MARKET DATA · PRICE ACTION · RISK ENGINE</div><h1>PA Position Manager <span>V1.0.3</span></h1></div><div class="status"><i id="apiDot"></i><span id="apiStatus">未连接行情</span></div></header>
+<header class="topbar"><div><div class="eyebrow">BINANCE MARKET DATA · PRICE ACTION · RISK ENGINE</div><h1>PA Position Manager <span>V1.0.4</span></h1></div><div class="status"><i id="apiDot"></i><span id="apiStatus">未连接行情</span></div></header>
 <main>
 <section class="panel market-panel">
   <div class="section-head"><div><span class="step">01</span><h2>市场与行情</h2></div><button id="refreshBtn" class="secondary">刷新行情</button></div>
   <div class="form-grid three">
-    <label>合约类型<input id="marketType" value="币安 U 本位永续（USDⓈ-M）" disabled></label>
+    <label>市场类型<select id="marketType"><option value="futures" selected>U 本位永续（默认）</option><option value="spot">现货</option><option value="tradfi">TradFi 永续</option></select></label>
     <label>交易品种<input id="symbol" list="symbols" value="BTCUSDT" autocomplete="off"><datalist id="symbols"><option value="BTCUSDT"><option value="ETHUSDT"></datalist></label>
     <label>分析周期<select id="timeframe"><option>4h</option><option>1h</option><option>1d</option><option>15m</option></select></label>
   </div>
@@ -78,7 +78,7 @@
   <div class="section-head"><div><span class="step">06</span><h2>仓位管理策略</h2></div><span class="tag">分批止盈 · 动态保护 · 结构退出</span></div>
   <div id="managementOut" class="management neutral"><p>计算交易计划后，这里会生成分批止盈、保本移动、结构跟踪和提前退出规则。即使当前不可开仓，也会显示条件式管理方案。</p></div>
 </section>
-<footer><p>PA Position Manager V1.0.3 · 仅提供行情分析与风险计算，不构成投资建议，不执行交易。</p><p>本工具仅支持币安 U 本位（USDT-M）永续合约，不支持币本位（COIN-M）、现货或 TradFi。下单前请在币安核对标记价格、交易规则、最小名义价值、数量步长及维持保证金档位。</p></footer>
+<footer><p>PA Position Manager V1.0.4 · 仅提供行情分析与风险计算，不构成投资建议，不执行交易。</p><p>本工具支持 USDT 计价的 U 本位永续、现货与 TradFi 永续；默认 U 本位。币本位（COIN-M）不支持。下单前请在币安核对标记价格、交易规则、最小名义价值、数量步长及维持保证金档位。</p></footer>
 </main>
 <script type="module" src="./js/app.js"></script>
 </body></html>

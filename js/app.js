@@ -1,4 +1,4 @@
-import {getTicker,getKlines,getSymbolRules} from './api/binance.js';
+import {getTicker,getKlines,getSymbolRules,assertUsdtSymbol} from './api/binance.js';
 import {analyzeStructure} from './price-action/structure.js';
 import {deriveStops,targets,calculatePosition,evaluateAdmission,roundDown} from './risk/position.js';
 import {makePlan} from './output/plan.js';
@@ -7,7 +7,7 @@ import {buildManagementPlan} from './risk/management.js';
 const $=id=>document.getElementById(id);
 let ticker=null,structure=null,rules=null,lastPlan=null;
 const fmt=(v,n=6)=>v!==null&&v!==undefined&&v!==''&&Number.isFinite(+v)?(+v).toLocaleString('en-US',{maximumFractionDigits:n}):'—';
-const market=()=>'usdt_m_perpetual';
+const market=()=>$('marketType').value;
 const symbol=()=>$('symbol').value.trim().toUpperCase();
 const timeframe=()=>$('timeframe').value;
 const interval=tf=>tf;
@@ -24,26 +24,27 @@ function roundPrice(value,side,kind='stop'){
   return +rounded.toFixed(Math.max(0,Math.ceil(-Math.log10(tick))+4));
 }
 function setResult(id,value){$(id).textContent=value??'—'}
+function syncMarketControls(){const spotMode=market()==='spot';const leverage=$('leverage');leverage.disabled=spotMode;leverage.parentElement.firstChild.textContent=spotMode?'杠杆倍数（现货固定 1x）':'杠杆倍数（手动填写）';$('markPrice').parentElement.querySelector('small:nth-of-type(2)').textContent=spotMode?'现货无标记价格':'合约市场可用'}
 
 async function refresh(){
   const s=symbol();if(!s)throw new Error('请填写交易品种');
-  if(!s.endsWith('USDT'))throw new Error('仅支持 U 本位 USDT 结算永续合约，例如 BTCUSDT；币本位暂不支持');
-  setStatus(false,'正在获取 U 本位行情');
-  ticker=await getTicker('futures',s);
+  assertUsdtSymbol(s);
+  const m=market();setStatus(false,'正在获取行情');
+  ticker=await getTicker(m,s);
   setResult('livePrice',fmt(ticker.price,8));setResult('markPrice',ticker.markPrice?fmt(ticker.markPrice,8):'不适用');
   setResult('change24h',ticker.changePct===null?'—':`${ticker.changePct>=0?'+':''}${fmt(ticker.changePct,2)}%`);
   $('change24h').style.color=ticker.changePct===null?'#91a2ba':ticker.changePct>=0?'#36c996':'#ff7185';
   $('priceMeta').textContent=`来源：${ticker.source} · ${new Date().toLocaleTimeString()}`;
-  $('marketMeta').textContent='BINANCE USDⓈ-M · USDT保证金 / 结算';
-  $('marketHint').textContent='仅使用币安 U 本位（USDⓈ-M）永续合约公开行情与交易规则；不支持币本位、现货或 TradFi。计划入场价、账户权益均由你手动填写。';
-  rules=await getSymbolRules('futures',s).catch(()=>null);
+  $('marketMeta').textContent=m==='spot'?'BINANCE SPOT · USDT计价':m==='tradfi'?'BINANCE TRADFI PERPETUAL':'BINANCE USDⓈ-M · USDT保证金 / 结算';
+  $('marketHint').textContent=m==='spot'?'现货模式：USDT计价，按全额资金占用估算，不使用杠杆保证金。':m==='tradfi'?'TradFi 永续模式：使用 TradFi 连续合约K线；交易规则与保证金档位需在交易界面再次核实。':'U本位永续模式（默认）：USDT保证金与结算。三种市场均以 USDT 作为计价单位。';
+  rules=await getSymbolRules(m,s).catch(()=>null);
   setStatus(true,'行情已更新');return ticker;
 }
 
 async function analyze(){
   const s=symbol();$('analysisMeta').textContent='正在获取K线…';
-  if(!s.endsWith('USDT'))throw new Error('仅支持 U 本位 USDT 结算永续合约，例如 BTCUSDT');
-  const candles=await getKlines({market:'futures',symbol:s,interval:interval(timeframe()),limit:300});
+  assertUsdtSymbol(s);
+  const candles=await getKlines({market:market(),symbol:s,interval:interval(timeframe()),limit:300});
   structure=analyzeStructure(candles,+$('pivotStrength').value);const x=structure;
   $('structureState').textContent=x.trend==='BULLISH'?'上升结构':x.trend==='BEARISH'?'下降结构':x.trend==='MIXED'?'混合结构':'震荡 / 未确认';
   $('structureDetail').textContent=`摆动高点 ${x.highClass} · 摆动低点 ${x.lowClass}`;
@@ -62,8 +63,9 @@ function calc(){
   const entry=+$('entry').value;if(!(entry>0))throw new Error('请填写有效的计划入场价');
   const equity=+$('equity').value;if(!(equity>0))throw new Error('请手动填写当前账户权益（USDT），不能留空或使用默认值');
   const leverage=+$('leverage').value;if(!(leverage>=1&&leverage<=125))throw new Error('杠杆倍数必须手动填写为 1–125 的有效数值');
-  if(!symbol().endsWith('USDT'))throw new Error('当前工具只支持 U 本位 USDT 结算永续合约');
-  if(rules&&(rules.quoteAsset!=='USDT'||rules.marginAsset!=='USDT'||rules.contractType!=='PERPETUAL'))throw new Error('交易所规则校验失败：该合约不是标准 USDT-M 永续合约');
+  assertUsdtSymbol(symbol());
+  if(market()==='futures'&&rules&&(rules.quoteAsset!=='USDT'||rules.marginAsset!=='USDT'||rules.contractType!=='PERPETUAL'))throw new Error('交易所规则校验失败：该合约不是标准 USDT-M 永续合约');
+  if(market()==='spot'&&rules&&rules.quoteAsset!=='USDT')throw new Error('现货交易对必须以 USDT 计价');
   if(!structure&&$('stopMode').value!=='manual')throw new Error('请先获取K线并分析价格结构');
   const side=$('side').value,mode=$('stopMode').value;
   let stopObj=deriveStops({side,entry,structure,buffer:+$('atrBuffer').value,mode,manualStop:+$('manualStop').value||null});
@@ -76,13 +78,13 @@ function calc(){
   let targetSet={rrTargets:[],structureTargets:[],finalTargets:[],warnings:[]};
   let position=null;
   if(stopObj.valid){
-    targetSet=targets({side,entry,stop:stopObj.stop,structure,manualTp1:+$('manualTp1').value||null,manualTp2:+$('manualTp2').value||null});
+    targetSet=targets({side,entry,stop:stopObj.stop,structure,manualTp1:+$('manualTp1').value||null,manualTp2:+$('manualTp2').value||null,tickSize:rules?.priceTick||0});
     targetSet.rrTargets=targetSet.rrTargets.map(t=>({...t,price:roundPrice(t.price,side,'target'),rr:Math.abs(roundPrice(t.price,side,'target')-entry)/stopObj.distance}));
     targetSet.structureTargets=targetSet.structureTargets.map(t=>({...t,price:roundPrice(t.price,side,'target'),rr:Math.abs(roundPrice(t.price,side,'target')-entry)/stopObj.distance}));
     targetSet.finalTargets=targetSet.finalTargets.map(t=>({...t,price:roundPrice(t.price,side,'target'),rr:Math.abs(roundPrice(t.price,side,'target')-entry)/stopObj.distance}));
     position=calculatePosition({
       equity,riskPct:+$('riskPct').value,entry,stop:stopObj.stop,
-      leverage,feeRate:+$('feeRate').value,side,rules,market:'usdt_m_perpetual',
+      leverage,feeRate:+$('feeRate').value,side,rules,market:market(),
       marginUtilization:+$('marginUtilization').value,slippagePct:+$('slippagePct').value/100,
       fundingPct:+$('fundingPct').value/100
     });
@@ -91,7 +93,7 @@ function calc(){
   const live=ticker?.price??null;
   const entryDriftPct=live&&entry>0?Math.abs(entry-live)/live:null;
   if(entryDriftPct!==null&&entryDriftPct>0.005)admission.warnings.push(`计划入场价与实时价偏离 ${(entryDriftPct*100).toFixed(2)}%，请重新确认挂单位置`);
-  if(!rules)admission.warnings.push('未获取到交易所过滤器，数量步长/最小下单金额尚未验证');
+  if(!rules)admission.warnings.push(market()==='tradfi'?'TradFi交易规则未自动读取，数量步长、最小下单金额及保证金档位需人工核实':'未获取到交易所过滤器，数量步长/最小下单金额尚未验证');
   if(admission.status!=='REJECTED'&&admission.warnings.length)admission.status='CAUTION';
   const management=buildManagementPlan({side,entry,stop:stopObj.valid?stopObj.stop:null,targets:targetSet,position,rules,admissionStatus:admission.status});
 
@@ -111,7 +113,7 @@ function calc(){
   admissionEl.textContent=`${admission.status}：${[...admission.reasons,...admission.warnings].join('；')||'结构与基础风险检查通过'}`;
   const rows=[
     ['止损依据',stopObj.reason,'结构锚点必须有效且未被收盘价破坏'],
-    ['止盈计算方法',targetSet.method==='STRUCTURE_FIRST_R_FALLBACK'?'有效结构目标优先，缺位由R倍数补足':'R倍数','优先选择前方未被突破的确认摆动高点/低点；无有效结构目标时使用1.5R/2.5R/3.5R'],
+    ['止盈计算方法',targetSet.method==='NEAREST_VALID_STRUCTURE_POSITIVE_R_FALLBACK'?'按入场方向依次选择最近有效结构位，正价格R目标补位':'R倍数','每一档选取从入场价方向上首先遇到的有效结构位；不再选择区间内最远点；负价格目标跳过'],
     ['结构止盈候选',targetSet.structureTargets.map(t=>`${fmt(t.price,8)} (${t.rr.toFixed(2)}R)`).join(' / ')||'无有效结构目标','只采用仍有效的前方确认摆动点；已被价格突破的结构点不作为未触及目标'],
     ['最终止盈点位',targetSet.finalTargets.map(t=>`${t.name} ${fmt(t.price,8)} (${t.rr.toFixed(2)}R, ${t.source})`).join(' / ')||'未生成','结构点优先，R倍数补位；手动TP可覆盖对应档位'],
     ['毛止损损失',position?`${fmt(position.grossStopLoss,4)} USDT`:'—','不含交易成本'],
@@ -144,6 +146,8 @@ $('useLiveBtn').addEventListener('click',()=>{if(!ticker){showError(new Error('�
 $('resetBtn').addEventListener('click',()=>{['entry','manualStop','manualTp1','manualTp2'].forEach(id=>$(id).value='');lastPlan=null;$('copyBtn').disabled=true;$('downloadBtn').disabled=true;$('admission').className='admission neutral';$('admission').textContent='交易计划已重置。'});
 $('copyBtn').addEventListener('click',async()=>{if(!lastPlan)return;try{await navigator.clipboard.writeText(JSON.stringify(lastPlan,null,2));$('copyBtn').textContent='已复制';setTimeout(()=>$('copyBtn').textContent='复制交易计划 JSON',1500)}catch{showError(new Error('剪贴板权限不可用，请使用导出JSON'))}});
 $('downloadBtn').addEventListener('click',()=>{if(!lastPlan)return;const blob=new Blob([JSON.stringify(lastPlan,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`PA-plan-${symbol()}-${Date.now()}.json`;a.click();URL.revokeObjectURL(a.href)});
+$('marketType').addEventListener('change',()=>{ticker=null;structure=null;rules=null;syncMarketControls();setStatus(false,'市场已切换，正在刷新行情');refresh().catch(showError)});
+syncMarketControls();
 if(!$('equity').value)setStatus(false,'请填写账户权益后再计算');
 refresh().catch(showError);
 let refreshBusy=false;setInterval(async()=>{if(document.visibilityState!=='visible'||refreshBusy)return;refreshBusy=true;try{await refresh()}catch(e){showError(e)}finally{refreshBusy=false}},15000);

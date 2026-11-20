@@ -1,3 +1,11 @@
+## V1.0.4
+
+- Restored USDT-quoted Spot and TradFi perpetual choices; USDⓈ-M perpetual remains the default market.
+- Restored market-aware ticker/Kline routes; Spot sizing reserves full USDT notional and does not apply leverage.
+- Rebuilt take-profit ladder to choose the nearest valid opposing structure level at each R boundary (not the farthest level).
+- Non-positive R targets are skipped; missing targets remain empty rather than inventing negative prices.
+- Added regression tests using the uploaded MMTUSDT example.
+
 # Changelog
 
 ## V1.0.3
